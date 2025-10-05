@@ -6,8 +6,6 @@ from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import websockets
 from openai import AsyncOpenAI
-import numpy as np
-from scipy import signal
 
 app = FastAPI()
 
