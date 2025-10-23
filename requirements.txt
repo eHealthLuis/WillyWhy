@@ -2,3 +2,5 @@ fastapi
 uvicorn
 websockets
 openai
+httpx
+tavily-python
