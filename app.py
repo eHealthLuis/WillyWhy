@@ -6,11 +6,86 @@ from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import Response
 import websockets
 from openai import AsyncOpenAI
+import httpx  # For web search API calls
+from datetime import datetime
 
 app = FastAPI()
 
 # OpenAI client
 openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Tavily API key (get from https://tavily.com)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+
+async def search_web(query: str) -> str:
+    """Search the web using Tavily API"""
+    try:
+        print(f"Searching for: {query}")
+        print(f"Using Tavily API key: {TAVILY_API_KEY[:10]}..." if TAVILY_API_KEY else "NO API KEY!")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": TAVILY_API_KEY,
+                    "query": query,
+                    "search_depth": "basic",
+                    "max_results": 3,
+                    "include_answer": True
+                },
+                timeout=10.0
+            )
+            
+            print(f"Tavily response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"Tavily response data: {json.dumps(data, indent=2)[:500]}")
+                
+                # Get the answer summary if available
+                if data.get("answer"):
+                    return data["answer"]
+                
+                # Otherwise combine results
+                results = []
+                for result in data.get("results", [])[:2]:
+                    content = result.get("content", "")
+                    if content:
+                        results.append(content)
+                
+                if results:
+                    return " ".join(results)
+                else:
+                    return "Ich konnte keine Informationen dazu finden."
+            else:
+                error_text = response.text
+                print(f"Tavily error response: {error_text}")
+                return "Entschuldigung, die Suche hat nicht funktioniert."
+                
+    except Exception as e:
+        print(f"Search error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "Entschuldigung, ich konnte keine aktuellen Informationen finden."
+
+# Define the function schema for OpenAI
+FUNCTION_DEFINITIONS = [
+    {
+        "type": "function",  # ADD THIS LINE!
+        "name": "search_web",
+        "description": "Durchsucht das Internet nach aktuellen Informationen. Verwende dies für Fragen über Wetter, Nachrichten, Veranstaltungen, Gottesdienstzeiten, oder andere aktuelle Informationen.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Die Suchanfrage auf Deutsch oder Englisch"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+]
 
 @app.post("/voice")
 async def voice(request: Request):
@@ -94,15 +169,22 @@ async def connect_to_openai():
         }
     )
     
-    # Configure session to use G.711 mulaw directly (same as Twilio)
+    # Configure session with function calling
     session_config = {
         "type": "session.update",
         "session": {
             "modalities": ["text", "audio"],
-            "instructions": "Du bist Willy, ein freundlicher Assistent für ältere Menschen in Österreich. Sprich Deutsch. Halte deine Antworten kurz, klar und hilfreich. Sei geduldig und höflich.",
+            "instructions": f"""Du bist Willy, ein freundlicher Assistent für ältere Menschen in Österreich. 
+            Sprich Deutsch. Halte deine Antworten kurz, klar und hilfreich. Sei geduldig und höflich.
+            
+            Aktuelles Datum: {datetime.now().strftime('%d.%m.%Y')}
+            Ort: Vorchdorf, Österreich
+            
+            Wenn Benutzer nach aktuellen Informationen fragen (Wetter, Veranstaltungen, Messen, Nachrichten), 
+            verwende die search_web Funktion.""",
             "voice": "echo",
-            "input_audio_format": "g711_ulaw",  # Changed to mulaw
-            "output_audio_format": "g711_ulaw",  # Changed to mulaw
+            "input_audio_format": "g711_ulaw",
+            "output_audio_format": "g711_ulaw",
             "input_audio_transcription": {
                 "model": "whisper-1"
             },
@@ -112,7 +194,9 @@ async def connect_to_openai():
                 "prefix_padding_ms": 300,
                 "silence_duration_ms": 700
             },
-            "temperature": 0.7
+            "temperature": 0.7,
+            "tools": FUNCTION_DEFINITIONS,  # Add function definitions
+            "tool_choice": "auto"
         }
     }
     
@@ -122,7 +206,7 @@ async def connect_to_openai():
     response = await ws.recv()
     event = json.loads(response)
     if event.get("type") == "session.updated":
-        print("OpenAI session configured with G.711 mulaw")
+        print("OpenAI session configured with web search capability")
     
     # Send initial greeting
     greeting = {
@@ -156,10 +240,8 @@ async def receive_from_twilio(twilio_ws: WebSocket, openai_ws):
                 if audio_count % 100 == 0:
                     print(f"Received {audio_count} audio packets from Twilio")
                 
-                # Get audio payload (already in mulaw format)
                 audio_payload = data['media']['payload']
                 
-                # Send directly to OpenAI (no conversion needed!)
                 audio_message = {
                     "type": "input_audio_buffer.append",
                     "audio": audio_payload
@@ -187,18 +269,42 @@ async def send_to_twilio(twilio_ws: WebSocket, openai_ws, get_stream_sid):
             if event_type not in ['response.audio.delta', 'input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped']:
                 print(f"OpenAI event: {event_type}")
             
-            if event_type == 'response.audio.delta':
+            # Handle function calls
+            if event_type == 'response.function_call_arguments.done':
+                call_id = event['call_id']
+                function_name = event['name']
+                arguments = json.loads(event['arguments'])
+                
+                print(f"Function call: {function_name} with args: {arguments}")
+                
+                # Execute the function
+                if function_name == "search_web":
+                    search_result = await search_web(arguments['query'])
+                    print(f"Search result: {search_result[:100]}...")
+                    
+                    # Send function result back to OpenAI
+                    function_output = {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": search_result
+                        }
+                    }
+                    await openai_ws.send(json.dumps(function_output))
+                    
+                    # Trigger response generation
+                    await openai_ws.send(json.dumps({"type": "response.create"}))
+            
+            elif event_type == 'response.audio.delta':
                 audio_count += 1
                 if audio_count % 50 == 0:
                     print(f"Sent {audio_count} audio packets to Twilio")
                 
-                # OpenAI sends mulaw audio (same as Twilio expects!)
                 audio_delta = event['delta']
                 
-                # Get current stream SID
                 sid = get_stream_sid()
                 if sid:
-                    # Send directly to Twilio (no conversion needed!)
                     media_message = {
                         "event": "media",
                         "streamSid": sid,
@@ -229,4 +335,12 @@ async def send_to_twilio(twilio_ws: WebSocket, openai_ws, get_stream_sid):
 
 if __name__ == "__main__":
     import uvicorn
+
+    print(f"OpenAI API Key: {'✓ Set' if os.getenv('OPENAI_API_KEY') else '✗ Missing'}")
+    print(f"Tavily API Key: {'✓ Set' if os.getenv('TAVILY_API_KEY') else '✗ Missing'}")
+    
+    # Test Tavily connection
+    if TAVILY_API_KEY:
+        print(f"Tavily API Key starts with: {TAVILY_API_KEY[:10]}...")
+
     uvicorn.run(app, host="0.0.0.0", port=5000)
