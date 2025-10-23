@@ -8,6 +8,9 @@ import websockets
 from openai import AsyncOpenAI
 import httpx  # For web search API calls
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()  # This reads your .env file
 
 app = FastAPI()
 
@@ -171,34 +174,37 @@ async def connect_to_openai():
     
     # Configure session with function calling
     session_config = {
-        "type": "session.update",
-        "session": {
-            "modalities": ["text", "audio"],
-            "instructions": f"""Du bist Willy, ein freundlicher Assistent für ältere Menschen in Österreich. 
-            Sprich Deutsch. Halte deine Antworten kurz, klar und hilfreich. Sei geduldig und höflich.
-            
-            Aktuelles Datum: {datetime.now().strftime('%d.%m.%Y')}
-            Ort: Vorchdorf, Österreich
-            
-            Wenn Benutzer nach aktuellen Informationen fragen (Wetter, Veranstaltungen, Messen, Nachrichten), 
-            verwende die search_web Funktion.""",
-            "voice": "echo",
-            "input_audio_format": "g711_ulaw",
-            "output_audio_format": "g711_ulaw",
-            "input_audio_transcription": {
-                "model": "whisper-1"
-            },
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.5,
-                "prefix_padding_ms": 300,
-                "silence_duration_ms": 700
-            },
-            "temperature": 0.7,
-            "tools": FUNCTION_DEFINITIONS,  # Add function definitions
-            "tool_choice": "auto"
-        }
+    "type": "session.update",
+    "session": {
+        "modalities": ["text", "audio"],
+        "instructions": f"""Du bist Willy, ein freundlicher Assistent für ältere Menschen in Österreich. 
+        Sprich Deutsch. Halte deine Antworten kurz, klar und hilfreich. Sei geduldig und höflich.
+        
+        WICHTIG: Begrüße jeden Anrufer mit: "Hallo! Freut mich dass du mich anrufst. Wie ist Ihr Name?"
+        Merke dir den Namen und verwende ihn im Gespräch.
+        
+        Aktuelles Datum: {datetime.now().strftime('%d.%m.%Y')}
+        Ort: Vorchdorf, Österreich
+        
+        Wenn Benutzer nach aktuellen Informationen fragen (Wetter, Veranstaltungen, Messen, Nachrichten), 
+        verwende die search_web Funktion.""",
+        "voice": "echo",
+        "input_audio_format": "g711_ulaw",
+        "output_audio_format": "g711_ulaw",
+        "input_audio_transcription": {
+            "model": "whisper-1"
+        },
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 700
+        },
+        "temperature": 0.7,
+        "tools": FUNCTION_DEFINITIONS,
+        "tool_choice": "auto"
     }
+}
     
     await ws.send(json.dumps(session_config))
     
@@ -210,18 +216,18 @@ async def connect_to_openai():
     
     # Send initial greeting
     greeting = {
-        "type": "conversation.item.create",
-        "item": {
-            "type": "message",
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_text",
-                    "text": "Sage eine kurze Begrüßung auf Deutsch und frage wie du helfen kannst."
-                }
-            ]
-        }
+    "type": "conversation.item.create",
+    "item": {
+        "type": "message",
+        "role": "user",
+        "content": [
+            {
+                "type": "input_text",
+                "text": "Begrüße den Anrufer jetzt."
+            }
+        ]
     }
+}
     await ws.send(json.dumps(greeting))
     await ws.send(json.dumps({"type": "response.create"}))
     
