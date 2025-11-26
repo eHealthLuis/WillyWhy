@@ -76,7 +76,15 @@ FUNCTION_DEFINITIONS = [
     {
         "type": "function",  # ADD THIS LINE!
         "name": "search_web",
-        "description": "Durchsucht das Internet nach aktuellen Informationen. Verwende dies für Fragen über Wetter, Nachrichten, Veranstaltungen, Gottesdienstzeiten, oder andere aktuelle Informationen.",
+        "description": "Durchsucht das Internet nach aktuellen Informationen. Verwende dies für Fragen über Wetter, Nachrichten, Veranstaltungen, Gottesdienstzeiten, oder andere aktuelle Informationen. "
+        "WICHTIG: Verwende diese Funktion IMMER bei:"
+        "- Wetter, Veranstaltungen, Messen, Nachrichten"
+        "- Medikamenten (Wirkung, Nebenwirkungen, Dosierung)"
+        "- Gesundheitsfragen (Symptome, Behandlungen, Hausmittel)"
+        "- Öffnungszeiten, Adressen, Telefonnummern"
+        "- Preise und aktuelle Angebote"
+        "Bei medizinischen Fragen: Suche nach seriösen Quellen wie Gesundheitsportalen, Apotheken-Websites, etc."
+        "Benutze dazu den am anfang erwähnten Ort.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -179,15 +187,22 @@ async def connect_to_openai():
         "modalities": ["text", "audio"],
         "instructions": f"""Du bist Willy, ein freundlicher Assistent für ältere Menschen in Österreich. 
         Sprich Deutsch. Halte deine Antworten kurz, klar und hilfreich. Sei geduldig und höflich.
+
+        MEDIZINISCHE FRAGEN:
+        - Bei allgemeinen Gesundheitsfragen (z.B. "Was hilft bei Kopfschmerzen?") gib hilfreiche, allgemeine Informationen
+        - Bei Medikamentenfragen erkläre Wirkung und übliche Anwendung (wie auf dem Beipackzettel)
+        - Bei ernsthaften Symptomen oder unklaren Beschwerden empfehle einen Arzt
+        - Suche im Internet nach aktuellen medizinischen Informationen wenn nötig
+        - Du ersetzt keinen Arzt, aber du kannst allgemeine Gesundheitsinformationen teilen
+
         
         WICHTIG: Begrüße jeden Anrufer mit: "Hallo! Freut mich dass du mich anrufst. Wie ist Ihr Name?"
         Merke dir den Namen und verwende ihn im Gespräch.
         
         Aktuelles Datum: {datetime.now().strftime('%d.%m.%Y')}
-        Ort: Vorchdorf, Österreich
         
-        Wenn Benutzer nach aktuellen Informationen fragen (Wetter, Veranstaltungen, Messen, Nachrichten), 
-        verwende die search_web Funktion.""",
+        Wenn Benutzer nach aktuellen Informationen fragen (Wetter, Veranstaltungen, Messen, Nachrichten), frage zuerst nach dem ort und
+        verwende dann die search_web Funktion.""",
         "voice": "echo",
         "input_audio_format": "g711_ulaw",
         "output_audio_format": "g711_ulaw",
